@@ -1,27 +1,25 @@
 const MINIMUM_FEE = 300;
-const EARTH_RADIUS_M = 6378137;
-const AUTOCOMPLETE_DEBOUNCE_MS = 300;
 
 const form = document.getElementById("quote-form");
 const addressInput = document.getElementById("address");
-const suggestionsEl = document.getElementById("suggestions");
 const submitBtn = document.getElementById("submit-btn");
 const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results");
 const matchedAddressEl = document.getElementById("matched-address");
-const footprintSqmEl = document.getElementById("footprint-sqm");
 const roofSqmEl = document.getElementById("roof-sqm");
-const pitchSelect = document.getElementById("pitch");
+const groundSqmEl = document.getElementById("ground-sqm");
+const avgPitchEl = document.getElementById("avg-pitch");
+const segmentCountEl = document.getElementById("segment-count");
+const imageryQualityEl = document.getElementById("imagery-quality");
 const rateSelect = document.getElementById("rate");
 const subtotalEl = document.getElementById("subtotal");
 const totalEl = document.getElementById("total");
 
 let map;
-let buildingLayer;
-let currentFootprintSqm = 0;
-let selectedSuggestion = null;
-let autocompleteTimer = null;
-let autocompleteAbort = null;
+let mapOverlays = [];
+let autocomplete;
+let selectedPlace = null;
+let currentRoofSqm = 0;
 
 function setStatus(message, kind) {
   if (!message) {
@@ -42,259 +40,221 @@ function formatNumber(n, digits = 0) {
   });
 }
 
-async function nominatimSearch(query, { limit = 5, signal } = {}) {
-  const url = new URL("https://nominatim.openstreetmap.org/search");
-  url.searchParams.set("q", query);
-  url.searchParams.set("format", "json");
-  url.searchParams.set("limit", String(limit));
-  url.searchParams.set("countrycodes", "au");
-  url.searchParams.set("addressdetails", "1");
-
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-    signal,
+function loadGoogleMaps(apiKey) {
+  return new Promise((resolve, reject) => {
+    if (window.google && window.google.maps) {
+      resolve();
+      return;
+    }
+    const existing = document.querySelector("script[data-google-maps]");
+    if (existing) {
+      existing.addEventListener("load", resolve);
+      existing.addEventListener("error", reject);
+      return;
+    }
+    const script = document.createElement("script");
+    const params = new URLSearchParams({
+      key: apiKey,
+      libraries: "places",
+      v: "weekly",
+      loading: "async",
+    });
+    script.src = `https://maps.googleapis.com/maps/api/js?${params}`;
+    script.async = true;
+    script.defer = true;
+    script.dataset.googleMaps = "true";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Failed to load Google Maps"));
+    document.head.appendChild(script);
   });
-  if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
+}
+
+function initAutocomplete() {
+  autocomplete = new google.maps.places.Autocomplete(addressInput, {
+    componentRestrictions: { country: "au" },
+    fields: ["geometry", "formatted_address"],
+    types: ["address"],
+  });
+  autocomplete.addListener("place_changed", () => {
+    const place = autocomplete.getPlace();
+    if (!place || !place.geometry || !place.geometry.location) {
+      selectedPlace = null;
+      submitBtn.disabled = true;
+      return;
+    }
+    selectedPlace = {
+      lat: place.geometry.location.lat(),
+      lng: place.geometry.location.lng(),
+      formattedAddress: place.formatted_address || addressInput.value,
+    };
+    submitBtn.disabled = false;
+  });
+
+  addressInput.addEventListener("input", () => {
+    selectedPlace = null;
+    submitBtn.disabled = true;
+  });
+}
+
+function initMap() {
+  map = new google.maps.Map(document.getElementById("map"), {
+    center: { lat: -33.8688, lng: 151.2093 },
+    zoom: 19,
+    mapTypeId: "hybrid",
+    tilt: 0,
+    streetViewControl: false,
+    fullscreenControl: false,
+  });
+}
+
+function clearOverlays() {
+  for (const overlay of mapOverlays) overlay.setMap(null);
+  mapOverlays = [];
+}
+
+function rectangleFromBoundingBox(box, options) {
+  return new google.maps.Rectangle({
+    bounds: {
+      south: box.sw.latitude,
+      west: box.sw.longitude,
+      north: box.ne.latitude,
+      east: box.ne.longitude,
+    },
+    ...options,
+  });
+}
+
+function pitchColor(pitch) {
+  const clamped = Math.max(0, Math.min(45, pitch));
+  const hue = 200 - (clamped / 45) * 160;
+  return `hsl(${hue}, 80%, 50%)`;
+}
+
+function renderBuilding(building) {
+  clearOverlays();
+
+  const buildingRect = rectangleFromBoundingBox(building.boundingBox, {
+    map,
+    strokeColor: "#ffffff",
+    strokeOpacity: 0.9,
+    strokeWeight: 2,
+    fillOpacity: 0,
+    clickable: false,
+  });
+  mapOverlays.push(buildingRect);
+
+  const segments = building.solarPotential?.roofSegmentStats || [];
+  for (const seg of segments) {
+    if (!seg.boundingBox) continue;
+    const rect = rectangleFromBoundingBox(seg.boundingBox, {
+      map,
+      strokeColor: pitchColor(seg.pitchDegrees || 0),
+      strokeOpacity: 0.9,
+      strokeWeight: 1.5,
+      fillColor: pitchColor(seg.pitchDegrees || 0),
+      fillOpacity: 0.25,
+      clickable: false,
+    });
+    mapOverlays.push(rect);
+  }
+
+  const bounds = new google.maps.LatLngBounds(
+    {
+      lat: building.boundingBox.sw.latitude,
+      lng: building.boundingBox.sw.longitude,
+    },
+    {
+      lat: building.boundingBox.ne.latitude,
+      lng: building.boundingBox.ne.longitude,
+    }
+  );
+  map.fitBounds(bounds, 40);
+}
+
+async function fetchBuildingInsights(lat, lng, apiKey) {
+  const url = new URL(
+    "https://solar.googleapis.com/v1/buildingInsights:findClosest"
+  );
+  url.searchParams.set("location.latitude", String(lat));
+  url.searchParams.set("location.longitude", String(lng));
+  url.searchParams.set("requiredQuality", "LOW");
+  url.searchParams.set("key", apiKey);
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = body.error?.message || "";
+    } catch {}
+    if (res.status === 404) {
+      throw new Error(
+        "No solar coverage at this address yet. Google Solar doesn't have imagery for this building."
+      );
+    }
+    throw new Error(
+      `Solar API error (${res.status})${detail ? ": " + detail : ""}`
+    );
+  }
   return res.json();
 }
 
-async function geocode(address) {
-  const data = await nominatimSearch(address, { limit: 1 });
-  if (!data.length) throw new Error("Address not found in Australia");
-  const hit = data[0];
+function summariseRoof(building) {
+  const segments = building.solarPotential?.roofSegmentStats || [];
+  let tilted = 0;
+  let ground = 0;
+  let pitchWeighted = 0;
+  for (const seg of segments) {
+    const area = seg.stats?.areaMeters2 || 0;
+    const groundArea = seg.stats?.groundAreaMeters2 || 0;
+    tilted += area;
+    ground += groundArea;
+    pitchWeighted += (seg.pitchDegrees || 0) * area;
+  }
+  const avgPitch = tilted > 0 ? pitchWeighted / tilted : 0;
   return {
-    lat: parseFloat(hit.lat),
-    lon: parseFloat(hit.lon),
-    displayName: hit.display_name,
+    tilted,
+    ground,
+    avgPitch,
+    segmentCount: segments.length,
+    imageryQuality: building.imageryQuality || "UNKNOWN",
   };
 }
 
-function hideSuggestions() {
-  suggestionsEl.hidden = true;
-  suggestionsEl.innerHTML = "";
-}
-
-function showSuggestions(items) {
-  if (!items.length) {
-    hideSuggestions();
-    return;
-  }
-  suggestionsEl.innerHTML = "";
-  for (const item of items) {
-    const li = document.createElement("li");
-    li.textContent = item.display_name;
-    li.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      selectedSuggestion = {
-        lat: parseFloat(item.lat),
-        lon: parseFloat(item.lon),
-        displayName: item.display_name,
-      };
-      addressInput.value = item.display_name;
-      hideSuggestions();
-    });
-    suggestionsEl.appendChild(li);
-  }
-  suggestionsEl.hidden = false;
-}
-
-function scheduleAutocomplete(query) {
-  if (autocompleteTimer) clearTimeout(autocompleteTimer);
-  if (autocompleteAbort) autocompleteAbort.abort();
-  if (query.length < 3) {
-    hideSuggestions();
-    return;
-  }
-  autocompleteTimer = setTimeout(async () => {
-    autocompleteAbort = new AbortController();
-    try {
-      const items = await nominatimSearch(query, {
-        limit: 5,
-        signal: autocompleteAbort.signal,
-      });
-      showSuggestions(items);
-    } catch (err) {
-      if (err.name !== "AbortError") console.warn(err);
-    }
-  }, AUTOCOMPLETE_DEBOUNCE_MS);
-}
-
-async function fetchBuildings(lat, lon, radius = 40) {
-  const query = `
-    [out:json][timeout:25];
-    (
-      way["building"](around:${radius},${lat},${lon});
-      relation["building"](around:${radius},${lat},${lon});
-    );
-    out geom;
-  `;
-  const res = await fetch("https://overpass-api.de/api/interpreter", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: "data=" + encodeURIComponent(query),
-  });
-  if (!res.ok) throw new Error(`Building lookup failed (${res.status})`);
-  return res.json();
-}
-
-function extractPolygons(overpassData) {
-  const polygons = [];
-  for (const el of overpassData.elements || []) {
-    if (el.type === "way" && Array.isArray(el.geometry)) {
-      const ring = el.geometry.map((p) => [p.lat, p.lon]);
-      if (ring.length >= 3) polygons.push({ id: el.id, ring });
-    } else if (el.type === "relation" && Array.isArray(el.members)) {
-      for (const m of el.members) {
-        if (m.type === "way" && m.role === "outer" && Array.isArray(m.geometry)) {
-          const ring = m.geometry.map((p) => [p.lat, p.lon]);
-          if (ring.length >= 3) polygons.push({ id: el.id, ring });
-        }
-      }
-    }
-  }
-  return polygons;
-}
-
-function pointInPolygon(lat, lon, ring) {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [yi, xi] = ring[i];
-    const [yj, xj] = ring[j];
-    const intersect =
-      yi > lat !== yj > lat &&
-      lon < ((xj - xi) * (lat - yi)) / (yj - yi + 1e-12) + xi;
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
-function polygonCentroid(ring) {
-  let lat = 0;
-  let lon = 0;
-  for (const [la, lo] of ring) {
-    lat += la;
-    lon += lo;
-  }
-  return [lat / ring.length, lon / ring.length];
-}
-
-function haversine(a, b) {
-  const toRad = (x) => (x * Math.PI) / 180;
-  const dLat = toRad(b[0] - a[0]);
-  const dLon = toRad(b[1] - a[1]);
-  const lat1 = toRad(a[0]);
-  const lat2 = toRad(b[0]);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
-}
-
-function pickBuilding(polygons, lat, lon) {
-  for (const poly of polygons) {
-    if (pointInPolygon(lat, lon, poly.ring)) return poly;
-  }
-  let best = null;
-  let bestDist = Infinity;
-  for (const poly of polygons) {
-    const c = polygonCentroid(poly.ring);
-    const d = haversine([lat, lon], c);
-    if (d < bestDist) {
-      bestDist = d;
-      best = poly;
-    }
-  }
-  return best;
-}
-
-function polygonAreaSqm(ring) {
-  if (ring.length < 3) return 0;
-  const toRad = (x) => (x * Math.PI) / 180;
-  let total = 0;
-  for (let i = 0; i < ring.length; i++) {
-    const [lat1, lon1] = ring[i];
-    const [lat2, lon2] = ring[(i + 1) % ring.length];
-    total +=
-      toRad(lon2 - lon1) *
-      (2 + Math.sin(toRad(lat1)) + Math.sin(toRad(lat2)));
-  }
-  return Math.abs((total * EARTH_RADIUS_M * EARTH_RADIUS_M) / 2);
-}
-
-function ensureMap() {
-  if (map) return;
-  map = L.map("map", { zoomControl: true });
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "© OpenStreetMap contributors",
-  }).addTo(map);
-}
-
-function renderMap(lat, lon, ring) {
-  ensureMap();
-  if (buildingLayer) {
-    buildingLayer.remove();
-    buildingLayer = null;
-  }
-  if (ring && ring.length >= 3) {
-    buildingLayer = L.polygon(ring, {
-      color: "#0ea5e9",
-      weight: 2,
-      fillColor: "#0ea5e9",
-      fillOpacity: 0.25,
-    }).addTo(map);
-    map.fitBounds(buildingLayer.getBounds(), { padding: [20, 20] });
-  } else {
-    map.setView([lat, lon], 19);
-    buildingLayer = L.marker([lat, lon]).addTo(map);
-  }
-  setTimeout(() => map.invalidateSize(), 50);
-}
-
 function recalcQuote() {
-  const pitch = parseFloat(pitchSelect.value) || 1;
   const rate = parseFloat(rateSelect.value) || 0;
-  const roofSqm = currentFootprintSqm * pitch;
-  const subtotal = roofSqm * rate;
+  const subtotal = currentRoofSqm * rate;
   const total = Math.max(subtotal, MINIMUM_FEE);
-
-  roofSqmEl.textContent = formatNumber(roofSqm);
   subtotalEl.textContent = formatNumber(subtotal, 2);
   totalEl.textContent = formatNumber(total, 2);
 }
 
-async function runQuote(address) {
-  setStatus("Locating address…", "loading");
+async function runQuote() {
+  if (!selectedPlace) {
+    setStatus("Please pick an address from the suggestions.", "error");
+    return;
+  }
   submitBtn.disabled = true;
   resultsEl.hidden = true;
-  hideSuggestions();
+  setStatus("Measuring roof with Google Solar…", "loading");
 
   try {
-    const location =
-      selectedSuggestion && selectedSuggestion.displayName === address
-        ? selectedSuggestion
-        : await geocode(address);
-    setStatus("Scanning for building footprint…", "loading");
+    const building = await fetchBuildingInsights(
+      selectedPlace.lat,
+      selectedPlace.lng,
+      window.APP_CONFIG.googleMapsApiKey
+    );
+    const summary = summariseRoof(building);
+    currentRoofSqm = summary.tilted;
 
-    const overpass = await fetchBuildings(location.lat, location.lon);
-    const polygons = extractPolygons(overpass);
+    matchedAddressEl.textContent = selectedPlace.formattedAddress;
+    roofSqmEl.textContent = formatNumber(summary.tilted);
+    groundSqmEl.textContent = formatNumber(summary.ground);
+    avgPitchEl.textContent = formatNumber(summary.avgPitch, 1);
+    segmentCountEl.textContent = String(summary.segmentCount);
+    imageryQualityEl.textContent = summary.imageryQuality;
 
-    if (!polygons.length) {
-      renderMap(location.lat, location.lon, null);
-      matchedAddressEl.textContent = location.displayName;
-      throw new Error(
-        "No building footprint found at this address. Try a nearby address or a more specific street number."
-      );
-    }
-
-    const building = pickBuilding(polygons, location.lat, location.lon);
-    const footprintSqm = polygonAreaSqm(building.ring);
-    currentFootprintSqm = footprintSqm;
-
-    matchedAddressEl.textContent = location.displayName;
-    footprintSqmEl.textContent = formatNumber(footprintSqm);
-
-    renderMap(location.lat, location.lon, building.ring);
+    renderBuilding(building);
     recalcQuote();
 
     resultsEl.hidden = false;
@@ -303,29 +263,33 @@ async function runQuote(address) {
     console.error(err);
     setStatus(err.message || "Something went wrong. Please try again.", "error");
   } finally {
-    submitBtn.disabled = false;
+    submitBtn.disabled = !selectedPlace;
   }
 }
 
-addressInput.addEventListener("input", () => {
-  selectedSuggestion = null;
-  scheduleAutocomplete(addressInput.value.trim());
-});
-
-addressInput.addEventListener("blur", () => {
-  setTimeout(hideSuggestions, 150);
-});
-
-addressInput.addEventListener("focus", () => {
-  if (suggestionsEl.children.length) suggestionsEl.hidden = false;
-});
+async function bootstrap() {
+  if (!window.APP_CONFIG || !window.APP_CONFIG.googleMapsApiKey) {
+    setStatus(
+      "Missing API key. Copy config.example.js to config.js and add your Google Maps API key.",
+      "error"
+    );
+    return;
+  }
+  try {
+    await loadGoogleMaps(window.APP_CONFIG.googleMapsApiKey);
+    initAutocomplete();
+    initMap();
+  } catch (err) {
+    console.error(err);
+    setStatus("Failed to load Google Maps. Check your API key and domain restrictions.", "error");
+  }
+}
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();
-  const address = addressInput.value.trim();
-  if (!address) return;
-  runQuote(address);
+  runQuote();
 });
 
-pitchSelect.addEventListener("change", recalcQuote);
 rateSelect.addEventListener("change", recalcQuote);
+
+bootstrap();

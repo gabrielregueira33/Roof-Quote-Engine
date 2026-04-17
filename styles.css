@@ -103,39 +103,6 @@ body {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.suggestions {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  margin: 0;
-  padding: 0.25rem 0;
-  list-style: none;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
-  z-index: 1000;
-  max-height: 260px;
-  overflow-y: auto;
-}
-
-.suggestions li {
-  padding: 0.55rem 0.9rem;
-  font-size: 0.92rem;
-  cursor: pointer;
-  border-bottom: 1px solid var(--border);
-}
-
-.suggestions li:last-child {
-  border-bottom: none;
-}
-
-.suggestions li:hover {
-  background: var(--surface-muted);
-  color: var(--accent-dark);
-}
-
 #address:focus {
   outline: none;
   border-color: var(--accent);
@@ -211,11 +178,50 @@ button:disabled {
 }
 
 .map {
-  height: 280px;
+  height: 320px;
   width: 100%;
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid var(--border);
+  background: #0f172a;
+}
+
+.legend {
+  margin: 0.65rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  margin-right: 0.3rem;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+
+.swatch-building {
+  background: transparent;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.3);
+}
+
+.swatch-segment {
+  background: rgba(14, 165, 233, 0.4);
+  border: 1.5px solid #0ea5e9;
+}
+
+.pac-container {
+  border-radius: 10px;
+  margin-top: 4px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  font-family: inherit;
 }
 
 .metrics {

@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Roof Quote Engine</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -24,15 +23,14 @@
           <input
             id="address"
             type="text"
-            placeholder="e.g. 1 Macquarie Street, Sydney NSW 2000"
+            placeholder="Start typing an Australian address…"
             autocomplete="off"
             required
           />
-          <ul id="suggestions" class="suggestions" hidden></ul>
         </div>
-        <button type="submit" id="submit-btn">Get Quote</button>
+        <button type="submit" id="submit-btn" disabled>Get Quote</button>
       </form>
-      <p class="hint">We'll locate the building, measure its roof, and price the clean.</p>
+      <p class="hint">We'll locate the building, measure its roof with Google Solar, and price the clean.</p>
     </section>
 
     <section id="status" class="status" hidden></section>
@@ -42,30 +40,34 @@
         <h2>Property</h2>
         <p id="matched-address" class="matched-address"></p>
         <div id="map" class="map"></div>
+        <p class="legend">
+          <span class="swatch swatch-building"></span> Building outline
+          <span class="swatch swatch-segment"></span> Roof segments
+        </p>
       </div>
 
       <div class="card result-card">
         <h2>Roof measurement</h2>
         <dl class="metrics">
           <div>
-            <dt>Building footprint</dt>
-            <dd><strong><span id="footprint-sqm">—</span> m²</strong></dd>
-          </div>
-          <div>
-            <dt>Roof pitch adjustment</dt>
-            <dd>
-              <select id="pitch">
-                <option value="1.00">Flat roof (×1.00)</option>
-                <option value="1.06">Low slope ~18° (×1.06)</option>
-                <option value="1.15" selected>Medium ~27° (×1.15)</option>
-                <option value="1.25">Steep ~37° (×1.25)</option>
-                <option value="1.41">Very steep ~45° (×1.41)</option>
-              </select>
-            </dd>
-          </div>
-          <div>
-            <dt>Estimated roof surface</dt>
+            <dt>Actual roof surface</dt>
             <dd><strong><span id="roof-sqm">—</span> m²</strong></dd>
+          </div>
+          <div>
+            <dt>Ground footprint</dt>
+            <dd><span id="ground-sqm">—</span> m²</dd>
+          </div>
+          <div>
+            <dt>Average pitch</dt>
+            <dd><span id="avg-pitch">—</span>°</dd>
+          </div>
+          <div>
+            <dt>Roof segments</dt>
+            <dd><span id="segment-count">—</span></dd>
+          </div>
+          <div>
+            <dt>Imagery quality</dt>
+            <dd><span id="imagery-quality">—</span></dd>
           </div>
         </dl>
       </div>
@@ -98,18 +100,18 @@
           </div>
         </dl>
         <p class="disclaimer">
-          Estimate based on OpenStreetMap building footprints and a configurable pitch multiplier.
-          Prices in AUD, GST not included. Final price may vary after an on-site inspection.
+          Roof geometry provided by the Google Solar API. Prices in AUD, GST not included.
+          Final price may vary after an on-site inspection.
         </p>
       </div>
     </section>
   </main>
 
   <footer class="footer">
-    <p>Data © OpenStreetMap contributors · Geocoding by Nominatim · Building data from Overpass API</p>
+    <p>Map data © Google · Roof geometry via Google Solar API</p>
   </footer>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
