@@ -1,7 +1,8 @@
 # Roof-Quote-Engine
 
-A zero-dependency, fully client-side app that turns a street address into a
-roof cleaning quote. Enter an address, and the app will:
+A zero-dependency, fully client-side app that turns an Australian street
+address into a roof cleaning quote. Enter an address (with autocomplete),
+and the app will:
 
 1. Geocode it via the free [Nominatim](https://nominatim.openstreetmap.org/)
    service (OpenStreetMap).
@@ -9,8 +10,8 @@ roof cleaning quote. Enter an address, and the app will:
    [Overpass API](https://overpass-api.de/).
 3. Compute the footprint area using a spherical polygon formula.
 4. Apply a configurable roof-pitch multiplier to estimate the true roof surface.
-5. Multiply by a configurable cleaning rate (with a minimum service fee) to
-   produce a quote.
+5. Multiply by a configurable cleaning rate in A$/m² (default A$5.00/m², with a
+   A$300 minimum service fee) to produce a quote in AUD.
 
 The building footprint is also drawn on an interactive Leaflet map so users can
 verify the correct structure was measured.

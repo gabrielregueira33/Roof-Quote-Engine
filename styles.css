@@ -85,16 +85,55 @@ body {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.autocomplete {
+  flex: 1 1 280px;
+  position: relative;
 }
 
 #address {
-  flex: 1 1 280px;
+  width: 100%;
   padding: 0.8rem 1rem;
   border: 1px solid var(--border);
   border-radius: 10px;
   font-size: 1rem;
   background: var(--surface-muted);
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 1000;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.suggestions li {
+  padding: 0.55rem 0.9rem;
+  font-size: 0.92rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+
+.suggestions li:last-child {
+  border-bottom: none;
+}
+
+.suggestions li:hover {
+  background: var(--surface-muted);
+  color: var(--accent-dark);
 }
 
 #address:focus {

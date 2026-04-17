@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-AU">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,19 +13,23 @@
       <span class="logo">◤</span>
       <h1>Roof Quote Engine</h1>
     </div>
-    <p class="tagline">Instant roof cleaning estimates from any address</p>
+    <p class="tagline">Instant roof cleaning estimates for any Australian address</p>
   </header>
 
   <main class="container">
     <section class="card search-card">
       <label for="address">Property address</label>
       <form id="quote-form" autocomplete="off">
-        <input
-          id="address"
-          type="text"
-          placeholder="e.g. 1600 Pennsylvania Ave NW, Washington, DC"
-          required
-        />
+        <div class="autocomplete">
+          <input
+            id="address"
+            type="text"
+            placeholder="e.g. 1 Macquarie Street, Sydney NSW 2000"
+            autocomplete="off"
+            required
+          />
+          <ul id="suggestions" class="suggestions" hidden></ul>
+        </div>
         <button type="submit" id="submit-btn">Get Quote</button>
       </form>
       <p class="hint">We'll locate the building, measure its roof, and price the clean.</p>
@@ -45,23 +49,23 @@
         <dl class="metrics">
           <div>
             <dt>Building footprint</dt>
-            <dd><span id="footprint-sqft">—</span> sq ft <span class="muted">(<span id="footprint-sqm">—</span> m²)</span></dd>
+            <dd><strong><span id="footprint-sqm">—</span> m²</strong></dd>
           </div>
           <div>
             <dt>Roof pitch adjustment</dt>
             <dd>
               <select id="pitch">
                 <option value="1.00">Flat roof (×1.00)</option>
-                <option value="1.06">Low slope 4/12 (×1.06)</option>
-                <option value="1.15" selected>Medium 6/12 (×1.15)</option>
-                <option value="1.25">Steep 9/12 (×1.25)</option>
-                <option value="1.41">Very steep 12/12 (×1.41)</option>
+                <option value="1.06">Low slope ~18° (×1.06)</option>
+                <option value="1.15" selected>Medium ~27° (×1.15)</option>
+                <option value="1.25">Steep ~37° (×1.25)</option>
+                <option value="1.41">Very steep ~45° (×1.41)</option>
               </select>
             </dd>
           </div>
           <div>
             <dt>Estimated roof surface</dt>
-            <dd><strong><span id="roof-sqft">—</span> sq ft</strong></dd>
+            <dd><strong><span id="roof-sqm">—</span> m²</strong></dd>
           </div>
         </dl>
       </div>
@@ -73,29 +77,29 @@
             <dt>Rate</dt>
             <dd>
               <select id="rate">
-                <option value="0.30">Soft wash – $0.30/sq ft</option>
-                <option value="0.40" selected>Standard clean – $0.40/sq ft</option>
-                <option value="0.55">Moss &amp; algae treatment – $0.55/sq ft</option>
-                <option value="0.75">Full restoration – $0.75/sq ft</option>
+                <option value="3">Soft wash – $3.00/m²</option>
+                <option value="5" selected>Standard clean – $5.00/m²</option>
+                <option value="7">Moss &amp; algae treatment – $7.00/m²</option>
+                <option value="9">Full restoration – $9.00/m²</option>
               </select>
             </dd>
           </div>
           <div>
             <dt>Subtotal</dt>
-            <dd>$<span id="subtotal">—</span></dd>
+            <dd>A$<span id="subtotal">—</span></dd>
           </div>
           <div>
             <dt>Minimum service fee</dt>
-            <dd>$<span id="minimum">300</span></dd>
+            <dd>A$<span id="minimum">300</span></dd>
           </div>
           <div class="total">
             <dt>Quoted price</dt>
-            <dd>$<span id="total">—</span></dd>
+            <dd>A$<span id="total">—</span></dd>
           </div>
         </dl>
         <p class="disclaimer">
           Estimate based on OpenStreetMap building footprints and a configurable pitch multiplier.
-          Final price may vary after an on-site inspection.
+          Prices in AUD, GST not included. Final price may vary after an on-site inspection.
         </p>
       </div>
     </section>

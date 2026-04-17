@@ -1,16 +1,16 @@
 const MINIMUM_FEE = 300;
-const SQM_TO_SQFT = 10.7639;
 const EARTH_RADIUS_M = 6378137;
+const AUTOCOMPLETE_DEBOUNCE_MS = 300;
 
 const form = document.getElementById("quote-form");
 const addressInput = document.getElementById("address");
+const suggestionsEl = document.getElementById("suggestions");
 const submitBtn = document.getElementById("submit-btn");
 const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results");
 const matchedAddressEl = document.getElementById("matched-address");
-const footprintSqftEl = document.getElementById("footprint-sqft");
 const footprintSqmEl = document.getElementById("footprint-sqm");
-const roofSqftEl = document.getElementById("roof-sqft");
+const roofSqmEl = document.getElementById("roof-sqm");
 const pitchSelect = document.getElementById("pitch");
 const rateSelect = document.getElementById("rate");
 const subtotalEl = document.getElementById("subtotal");
@@ -19,6 +19,9 @@ const totalEl = document.getElementById("total");
 let map;
 let buildingLayer;
 let currentFootprintSqm = 0;
+let selectedSuggestion = null;
+let autocompleteTimer = null;
+let autocompleteAbort = null;
 
 function setStatus(message, kind) {
   if (!message) {
@@ -33,31 +36,87 @@ function setStatus(message, kind) {
 }
 
 function formatNumber(n, digits = 0) {
-  return Number(n).toLocaleString(undefined, {
+  return Number(n).toLocaleString("en-AU", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
 }
 
-async function geocode(address) {
+async function nominatimSearch(query, { limit = 5, signal } = {}) {
   const url = new URL("https://nominatim.openstreetmap.org/search");
-  url.searchParams.set("q", address);
+  url.searchParams.set("q", query);
   url.searchParams.set("format", "json");
-  url.searchParams.set("limit", "1");
+  url.searchParams.set("limit", String(limit));
+  url.searchParams.set("countrycodes", "au");
   url.searchParams.set("addressdetails", "1");
 
   const res = await fetch(url, {
     headers: { Accept: "application/json" },
+    signal,
   });
   if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
-  const data = await res.json();
-  if (!data.length) throw new Error("Address not found");
+  return res.json();
+}
+
+async function geocode(address) {
+  const data = await nominatimSearch(address, { limit: 1 });
+  if (!data.length) throw new Error("Address not found in Australia");
   const hit = data[0];
   return {
     lat: parseFloat(hit.lat),
     lon: parseFloat(hit.lon),
     displayName: hit.display_name,
   };
+}
+
+function hideSuggestions() {
+  suggestionsEl.hidden = true;
+  suggestionsEl.innerHTML = "";
+}
+
+function showSuggestions(items) {
+  if (!items.length) {
+    hideSuggestions();
+    return;
+  }
+  suggestionsEl.innerHTML = "";
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item.display_name;
+    li.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      selectedSuggestion = {
+        lat: parseFloat(item.lat),
+        lon: parseFloat(item.lon),
+        displayName: item.display_name,
+      };
+      addressInput.value = item.display_name;
+      hideSuggestions();
+    });
+    suggestionsEl.appendChild(li);
+  }
+  suggestionsEl.hidden = false;
+}
+
+function scheduleAutocomplete(query) {
+  if (autocompleteTimer) clearTimeout(autocompleteTimer);
+  if (autocompleteAbort) autocompleteAbort.abort();
+  if (query.length < 3) {
+    hideSuggestions();
+    return;
+  }
+  autocompleteTimer = setTimeout(async () => {
+    autocompleteAbort = new AbortController();
+    try {
+      const items = await nominatimSearch(query, {
+        limit: 5,
+        signal: autocompleteAbort.signal,
+      });
+      showSuggestions(items);
+    } catch (err) {
+      if (err.name !== "AbortError") console.warn(err);
+    }
+  }, AUTOCOMPLETE_DEBOUNCE_MS);
 }
 
 async function fetchBuildings(lat, lon, radius = 40) {
@@ -195,12 +254,11 @@ function renderMap(lat, lon, ring) {
 function recalcQuote() {
   const pitch = parseFloat(pitchSelect.value) || 1;
   const rate = parseFloat(rateSelect.value) || 0;
-  const footprintSqft = currentFootprintSqm * SQM_TO_SQFT;
-  const roofSqft = footprintSqft * pitch;
-  const subtotal = roofSqft * rate;
+  const roofSqm = currentFootprintSqm * pitch;
+  const subtotal = roofSqm * rate;
   const total = Math.max(subtotal, MINIMUM_FEE);
 
-  roofSqftEl.textContent = formatNumber(roofSqft);
+  roofSqmEl.textContent = formatNumber(roofSqm);
   subtotalEl.textContent = formatNumber(subtotal, 2);
   totalEl.textContent = formatNumber(total, 2);
 }
@@ -209,9 +267,13 @@ async function runQuote(address) {
   setStatus("Locating address…", "loading");
   submitBtn.disabled = true;
   resultsEl.hidden = true;
+  hideSuggestions();
 
   try {
-    const location = await geocode(address);
+    const location =
+      selectedSuggestion && selectedSuggestion.displayName === address
+        ? selectedSuggestion
+        : await geocode(address);
     setStatus("Scanning for building footprint…", "loading");
 
     const overpass = await fetchBuildings(location.lat, location.lon);
@@ -231,7 +293,6 @@ async function runQuote(address) {
 
     matchedAddressEl.textContent = location.displayName;
     footprintSqmEl.textContent = formatNumber(footprintSqm);
-    footprintSqftEl.textContent = formatNumber(footprintSqm * SQM_TO_SQFT);
 
     renderMap(location.lat, location.lon, building.ring);
     recalcQuote();
@@ -245,6 +306,19 @@ async function runQuote(address) {
     submitBtn.disabled = false;
   }
 }
+
+addressInput.addEventListener("input", () => {
+  selectedSuggestion = null;
+  scheduleAutocomplete(addressInput.value.trim());
+});
+
+addressInput.addEventListener("blur", () => {
+  setTimeout(hideSuggestions, 150);
+});
+
+addressInput.addEventListener("focus", () => {
+  if (suggestionsEl.children.length) suggestionsEl.hidden = false;
+});
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();
